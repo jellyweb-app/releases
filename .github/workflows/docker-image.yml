@@ -62,6 +62,13 @@ jobs:
             type=semver,pattern={{version}},value=${{ env.TAG }}
             type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
             type=raw,value=latest,enable=${{ !contains(env.TAG, '-') }}
+          # Sinon nom et description du dépôt (« releases ») : ceux de l'application
+          labels: |
+            org.opencontainers.image.title=JellyWeb
+            org.opencontainers.image.description=A modern web client for Jellyfin
+          annotations: |
+            org.opencontainers.image.title=JellyWeb
+            org.opencontainers.image.description=A modern web client for Jellyfin
       - if: env.KIT != ''
         uses: docker/build-push-action@v7
         with:
@@ -70,6 +77,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
       - if: env.KIT != ''
         name: Kit retiré des téléchargements
         run: gh release delete-asset "$TAG" "$KIT" --repo "$GITHUB_REPOSITORY" --yes
