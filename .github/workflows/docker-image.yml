@@ -1,0 +1,75 @@
+name: Image Docker
+
+# Image publique ghcr.io/jellyweb-app/jellyweb, construite à chaque release à partir du kit joint par
+# la CI de JellyWeb (site compilé + configuration nginx), puis retiré des téléchargements.
+# Fichier déposé et tenu à jour par la GitHub App jellyweb-release : ne pas le modifier ici.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release à publier (ex. v1.2.3)
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  image:
+    name: Image Docker (amd64, arm64)
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Kit de la release
+        run: |
+          # Les fichiers peuvent arriver juste après la publication : quelques essais
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+                 --pattern 'JellyWeb_*_docker.tar.gz' --dir kit 2>/dev/null; then
+              break
+            fi
+            if [ "$attempt" = 10 ]; then
+              echo "::notice::Pas de kit Docker dans $TAG : rien à publier"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "KIT=$(basename kit/JellyWeb_*_docker.tar.gz)" >> "$GITHUB_ENV"
+          tar -xzf kit/JellyWeb_*_docker.tar.gz -C kit
+          ls kit
+      - if: env.KIT != ''
+        uses: docker/setup-qemu-action@v4
+      - if: env.KIT != ''
+        uses: docker/setup-buildx-action@v4
+      - if: env.KIT != ''
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      # v1.2.3 → :1.2.3, :1.2, :latest ; pré-version v1.2.3-1 → :1.2.3-1 seulement
+      - if: env.KIT != ''
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/jellyweb
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ env.TAG }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ env.TAG }}
+            type=raw,value=latest,enable=${{ !contains(env.TAG, '-') }}
+      - if: env.KIT != ''
+        uses: docker/build-push-action@v7
+        with:
+          context: kit
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      - if: env.KIT != ''
+        name: Kit retiré des téléchargements
+        run: gh release delete-asset "$TAG" "$KIT" --repo "$GITHUB_REPOSITORY" --yes
